@@ -140,6 +140,7 @@
       </form>
 
       <p id="chatStatus" role="status" aria-live="polite"></p>
+      <button id="logoutBtn" class="logout" type="button">Log out</button>
       <button id="logoutBtn" class="secondary">Log out</button>
     </section>
   </main>
@@ -303,7 +304,37 @@
       chatStatus("");
       await loadMessages();
     });
+$("clearChatBtn").addEventListener("click", async () => {
+  if (!currentUser) return;
 
+  const confirmed = confirm(
+    "Clear the entire shared chat for both of you? " +
+    "All messages will be permanently deleted."
+  );
+
+  if (!confirmed) return;
+
+  $("clearChatBtn").disabled = true;
+  chatStatus("Clearing chat...");
+
+  try {
+    const { error } = await db
+      .from("messages")
+      .delete()
+      .not("id", "is", null);
+
+    if (error) {
+      console.error(error);
+      chatStatus("Could not clear chat. Please check permissions.");
+      return;
+    }
+
+    await loadMessages();
+    chatStatus("Chat cleared successfully.");
+  } finally {
+    $("clearChatBtn").disabled = false;
+  }
+});
     $("logoutBtn").addEventListener("click", async () => {
       if (channel) {
         await db.removeChannel(channel);
