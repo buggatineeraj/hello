@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Our Little World ❤️</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #100e18;
+      color: #f8f1fa;
+      font-family: Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: #1c1928;
+      border: 1px solid #403249;
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: 0 12px 45px #0005;
+    }
+
+    h1 { text-align: center; font-size: 25px; }
+    .sub { text-align: center; color: #c5afce; }
+    input, button {
+      width: 100%;
+      padding: 13px;
+      margin-top: 10px;
+      border-radius: 10px;
+      font-size: 15px;
+    }
+
+    input {
+      background: #100e18;
+      color: white;
+      border: 1px solid #594565;
+    }
+
+    button {
+      background: #d66baf;
+      color: #180e1b;
+      border: 0;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button.secondary {
+      background: #393044;
+      color: white;
+    }
+
+    #chat { display: none; }
+    #messages {
+      height: 350px;
+      overflow-y: auto;
+      padding: 12px 0;
+    }
+
+    .msg {
+      background: #393044;
+      border-radius: 14px 14px 14px 3px;
+      padding: 11px;
+      margin: 10px 0;
+      max-width: 85%;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .mine {
+      background: #8f4f83;
+      margin-left: auto;
+      border-radius: 14px 14px 3px 14px;
+    }
+
+    .meta {
+      display: block;
+      font-size: 11px;
+      opacity: .75;
+      margin-top: 6px;
+    }
+
+    #status {
+      font-size: 13px;
+      color: #d9b8df;
+      min-height: 18px;
+    }
+
+    .composer {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .composer input { min-width: 0; flex: 1; }
+    .composer button { width: 85px; }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <section id="login">
+      <h1>Our Little World ❤️</h1>
+      <p class="sub">A little place just for us.</p>
+
+      <input id="email" type="email"
+        placeholder="Your email address" autocomplete="email">
+
+      <input id="password" type="password"
+        placeholder="Password" autocomplete="current-password">
+
+      <button id="loginBtn">Log in</button>
+      <button id="signupBtn" class="secondary">Create account</button>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="chat">
+      <h1>Our Little World ❤️</h1>
+      <p class="sub">Just us, one message at a time.</p>
+
+      <div id="messages" aria-live="polite"></div>
+
+      <form id="sendForm" class="composer">
+        <input id="messageInput" maxlength="2000"
+          placeholder="Write a message..." autocomplete="off"
+          required>
+        <button type="submit">Send</button>
+      </form>
+
+      <p id="chatStatus" role="status" aria-live="polite"></p>
+      <button id="logoutBtn" class="secondary">Log out</button>
+    </section>
+  </main>
+
+  <script>
+    // Replace these two placeholders with your own Supabase values.
+    const SUPABASE_URL = "https://zpbeyxmkhecnqibpsuti.supabase.co/";
+    const SUPABASE_KEY = "sb_publishable_P6ZOg42jdKuT6Kt8V4gisQ_AweXU8X6";
+
+    const db = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_KEY
+    );
+
+    const $ = id => document.getElementById(id);
+
+    let currentUser = null;
+    let channel = null;
+
+    function status(message) {
+      $("status").textContent = message;
+    }
+
+    function chatStatus(message) {
+      $("chatStatus").textContent = message;
+    }
+
+    async function loadMessages() {
+      const { data, error } = await db
+        .from("messages")
+        .select("id, sender_id, content, created_at")
+        .order("created_at", { ascending: true })
+        .limit(100);
+
+      if (error) {
+        chatStatus("Could not load messages. Check your connection.");
+        console.error(error);
+        return;
+      }
+
+      const box = $("messages");
+      box.replaceChildren();
+
+      for (const m of data) {
+        const bubble = document.createElement("div");
+        bubble.className = "msg" +
+          (m.sender_id === currentUser.id ? " mine" : "");
+
+        const content = document.createElement("div");
+        content.textContent = m.content;
+
+        const meta = document.createElement("small");
+        meta.className = "meta";
+        meta.textContent =
+          (m.sender_id === currentUser.id ? "You" : "Her") +
+          " · " + new Date(m.created_at).toLocaleString();
+
+        bubble.append(content, meta);
+        box.appendChild(bubble);
+      }
+
+      box.scrollTop = box.scrollHeight;
+      chatStatus("");
+    }
+
+    async function enterChat(user) {
+      currentUser = user;
+      $("login").style.display = "none";
+      $("chat").style.display = "block";
+
+      await loadMessages();
+
+      if (channel) {
+        await db.removeChannel(channel);
+      }
+
+      channel = db.channel("private-chat-updates")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "messages"
+        }, () => {
+          loadMessages();
+        })
+        .subscribe(state => {
+          if (state === "CHANNEL_ERROR" ||
+              state === "TIMED_OUT") {
+            chatStatus("Live updates unavailable. Refresh to retry.");
+          }
+        });
+    }
+
+    $("loginBtn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const password = $("password").value;
+
+      status("Logging in...");
+
+      const { data, error } = await db.auth.signInWithPassword({
+        email, password
+      });
+
+      if (error) {
+        status(error.message);
+        return;
+      }
+
+      status("");
+      await enterChat(data.user);
+    });
+
+    $("signupBtn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const password = $("password").value;
+
+      if (password.length < 8) {
+        status("Choose a password with at least 8 characters.");
+        return;
+      }
+
+      status("Creating your account...");
+
+      const { data, error } = await db.auth.signUp({
+        email, password
+      });
+
+      if (error) {
+        status(error.message);
+        return;
+      }
+
+      if (data.session && data.user) {
+        status("Account created.");
+        await enterChat(data.user);
+      } else {
+        status("Check your email to confirm your account, then log in.");
+      }
+    });
+
+    $("sendForm").addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const content = $("messageInput").value.trim();
+      if (!content || !currentUser) return;
+
+      $("messageInput").disabled = true;
+
+      const { error } = await db.from("messages").insert({
+        content
+      });
+
+      $("messageInput").disabled = false;
+
+      if (error) {
+        chatStatus("Message not sent. Check your login and access rules.");
+        console.error(error);
+        return;
+      }
+
+      $("messageInput").value = "";
+      chatStatus("");
+      await loadMessages();
+    });
+
+    $("logoutBtn").addEventListener("click", async () => {
+      if (channel) {
+        await db.removeChannel(channel);
+        channel = null;
+      }
+
+      const { error } = await db.auth.signOut();
+
+      if (error) {
+        chatStatus("Could not log out. Please try again.");
+        return;
+      }
+
+      currentUser = null;
+      $("chat").style.display = "none";
+      $("login").style.display = "block";
+      status("You have logged out.");
+    });
+
+    async function start() {
+      if (SUPABASE_URL.includes("PASTE_") ||
+          SUPABASE_KEY.includes("PASTE_")) {
+        status("Add your Supabase URL and publishable key in the code.");
+        return;
+      }
+
+      const { data, error } = await db.auth.getSession();
+
+      if (error) {
+        status("Could not check your login. Refresh and try again.");
+        return;
+      }
+
+      if (data.session) {
+        await enterChat(data.session.user);
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>.
